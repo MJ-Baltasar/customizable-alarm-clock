@@ -264,6 +264,15 @@
     return () => { try { source.stop(); } catch (e) {} };
   }
 
+  function getSoundForAlarm(alarm) {
+    if (alarm && alarm.soundId) {
+      const fixed = library.find((s) => s.id === alarm.soundId && (s.kind === "builtin" || s.buffer));
+      if (fixed) return fixed;
+      // the chosen sound was deleted since this alarm was set - fall back to rotation
+    }
+    return getNextSound();
+  }
+
   function getNextSound() {
     const enabled = library.filter((s) => s.enabled && (s.kind === "builtin" || s.buffer));
     if (enabled.length === 0) return null;
@@ -328,6 +337,8 @@
   const modalTime = el("modalTime");
   const modalLabel = el("modalLabel");
   const modalDays = el("modalDays");
+  const modalSound = el("modalSound");
+  const modalSoundPreview = el("modalSoundPreview");
   const firingOverlay = el("firingOverlay");
   const firingTag = el("firingTag");
   const firingTime = el("firingTime");
@@ -339,6 +350,7 @@
 
   let editingId = null;
   let draftDays = [false, false, false, false, false, false, false];
+  let draftSoundId = "";
 
   // ---------------------------------------------------------------------
   // rendering
@@ -360,12 +372,15 @@
     alarmsList.innerHTML = sorted.map((alarm) => {
       const [aH, aM] = alarm.time.split(":").map(Number);
       const { h, m, period } = formatTime12(aH, aM);
+      const soundLabel = alarm.soundId
+        ? (library.find((s) => s.id === alarm.soundId)?.name || "Shuffle")
+        : "Shuffle";
       return `
         <div class="alarm-card ${alarm.enabled ? "" : "disabled"}">
           <div class="alarm-dot ${alarm.enabled ? "on" : ""}"></div>
           <div class="alarm-main">
             <div class="alarm-time">${pad2(h)}:${m}<span class="period">${period}</span></div>
-            <div class="alarm-meta">${escapeHtml(alarm.label || "Alarm")} · ${describeRepeat(alarm.days)}</div>
+            <div class="alarm-meta">${escapeHtml(alarm.label || "Alarm")} · ${describeRepeat(alarm.days)} · 🔊 ${escapeHtml(soundLabel)}</div>
           </div>
           <div class="alarm-actions">
             <button class="toggle ${alarm.enabled ? "on" : ""}" data-action="toggle-alarm" data-id="${alarm.id}" aria-label="Toggle alarm"><div class="toggle-knob"></div></button>
@@ -411,6 +426,18 @@
     ).join("");
   }
 
+  function renderModalSoundOptions() {
+    const options = [`<option value="">🔀 Shuffle (different each time)</option>`]
+      .concat(
+        library.map(
+          (s) =>
+            `<option value="${s.id}" ${s.id === draftSoundId ? "selected" : ""}>${escapeHtml(s.name)}${s.kind === "custom" ? " (uploaded)" : ""}</option>`
+        )
+      );
+    modalSound.innerHTML = options.join("");
+    modalSound.value = draftSoundId || "";
+  }
+
   function renderSnoozeRow() {
     snoozeRow.innerHTML = [5, 10, 15].map((mins) =>
       `<button class="snooze-pill ${settings.snoozeMinutes === mins ? "active" : ""}" data-mins="${mins}">${mins} min</button>`
@@ -444,7 +471,7 @@
     firingAlarm = alarm;
     renderFiring();
     startVolumeRamp();
-    const chosen = getNextSound();
+    const chosen = getSoundForAlarm(alarm);
     if (!chosen) {
       nowPlayingName = "Classic beep (default)";
       stopCurrentAlarmSound = playPatternLoop("classic-beep");
@@ -523,13 +550,18 @@
   el("addAlarmBtn").addEventListener("click", () => {
     editingId = null;
     draftDays = [false, false, false, false, false, false, false];
+    draftSoundId = "";
     modalTitle.textContent = "New alarm";
     modalTime.value = "07:00";
     modalLabel.value = "";
     renderModalDays();
+    renderModalSoundOptions();
     modalOverlay.classList.add("show");
   });
-  el("modalCancelBtn").addEventListener("click", () => modalOverlay.classList.remove("show"));
+  el("modalCancelBtn").addEventListener("click", () => {
+    if (stopModalPreview) stopModalPreview();
+    modalOverlay.classList.remove("show");
+  });
   modalDays.addEventListener("click", (e) => {
     const btn = e.target.closest(".day-btn");
     if (!btn) return;
@@ -537,17 +569,53 @@
     draftDays[i] = !draftDays[i];
     renderModalDays();
   });
+  modalSound.addEventListener("change", () => {
+    draftSoundId = modalSound.value;
+    if (stopModalPreview) { stopModalPreview(); stopModalPreview = null; }
+    modalSoundPreview.classList.remove("playing");
+    modalSoundPreview.textContent = "▶";
+  });
+  let stopModalPreview = null;
+  modalSoundPreview.addEventListener("click", () => {
+    if (stopModalPreview) {
+      stopModalPreview();
+      stopModalPreview = null;
+      modalSoundPreview.classList.remove("playing");
+      modalSoundPreview.textContent = "▶";
+      return;
+    }
+    const soundId = modalSound.value;
+    const sound = soundId ? library.find((s) => s.id === soundId) : getNextSound();
+    if (!sound) return;
+    getCtx();
+    const stop = sound.kind === "builtin"
+      ? playPatternLoop(sound.id, previewGain)
+      : playBufferLoop(sound.buffer, previewGain);
+    stopModalPreview = stop;
+    modalSoundPreview.classList.add("playing");
+    modalSoundPreview.textContent = "■";
+    setTimeout(() => {
+      if (stopModalPreview === stop) {
+        stop();
+        stopModalPreview = null;
+        modalSoundPreview.classList.remove("playing");
+        modalSoundPreview.textContent = "▶";
+      }
+    }, 2600);
+  });
   el("modalSaveBtn").addEventListener("click", () => {
     const time = modalTime.value || "07:00";
     const label = modalLabel.value.trim();
+    const soundId = draftSoundId || null;
     if (editingId) {
       const a = alarms.find((x) => x.id === editingId);
-      if (a) { a.time = time; a.label = label; a.days = [...draftDays]; }
+      if (a) { a.time = time; a.label = label; a.days = [...draftDays]; a.soundId = soundId; }
     } else {
-      alarms.push({ id: makeId(), time, label, days: [...draftDays], enabled: true });
+      alarms.push({ id: makeId(), time, label, days: [...draftDays], enabled: true, soundId });
     }
     persistAlarms();
     renderAlarms();
+    if (stopModalPreview) { stopModalPreview(); stopModalPreview = null; }
     modalOverlay.classList.remove("show");
   });
 
@@ -574,10 +642,12 @@
       if (!a) return;
       editingId = id;
       draftDays = [...a.days];
+      draftSoundId = a.soundId || "";
       modalTitle.textContent = "Edit alarm";
       modalTime.value = a.time;
       modalLabel.value = a.label || "";
       renderModalDays();
+      renderModalSoundOptions();
       modalOverlay.classList.add("show");
     }
   });
@@ -624,6 +694,9 @@
     } else if (action === "delete-sound") {
       if (previewingId === id && stopCurrentPreview) { stopCurrentPreview(); stopCurrentPreview = null; previewingId = null; }
       library = library.filter((s) => s.id !== id);
+      let touched = false;
+      alarms.forEach((a) => { if (a.soundId === id) { a.soundId = null; touched = true; } });
+      if (touched) { persistAlarms(); renderAlarms(); }
       persistLibraryMeta();
       idbDelete(id);
       renderSounds();
