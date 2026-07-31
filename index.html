@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Alarm Clock</title>
+<meta name="theme-color" content="#14162b" />
+<meta name="description" content="An offline alarm clock that rotates through your sounds every time it goes off." />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<style>
+  :root {
+    --bg: #14162b;
+    --surface: #1c1f3d;
+    --border: #31356b;
+    --text: #f2f0e6;
+    --muted: #8b8fae;
+    --amber: #ffb347;
+    --amber-dim: #5c4826;
+    --mint: #6ee7b7;
+    --mint-dim: #294a3d;
+    --danger: #ff6b6b;
+    --danger-dim: #4a2020;
+    --purple: #b39ddb;
+    --purple-dim: #332a52;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    padding: 32px 16px 80px;
+    min-height: 100vh;
+  }
+  .ui { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--amber); }
+
+  .clock-wrap { text-align: center; margin-bottom: 24px; }
+  .clock-time { font-size: 64px; font-weight: 700; letter-spacing: 2px; line-height: 1;
+    color: var(--amber); text-shadow: 0 0 24px var(--amber-dim); }
+  .clock-period { font-size: 28px; margin-left: 8px; color: var(--muted); }
+  .clock-date { margin-top: 8px; color: var(--muted); font-size: 14px; }
+
+  .banner { max-width: 480px; margin: 0 auto 16px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; font-size: 12px;
+    color: var(--muted); display: flex; gap: 10px; align-items: flex-start; }
+  .banner button { background: transparent; border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor: pointer; flex-shrink: 0; }
+  .banner .close { border: none; color: var(--muted); font-size: 14px; padding: 0 4px; }
+
+  .tabs { max-width: 480px; margin: 0 auto 20px; display: flex; gap: 8px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
+  .tab-btn { flex: 1; background: transparent; color: var(--muted); border: none; border-radius: 7px;
+    padding: 8px 0; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .tab-btn.active { background: var(--amber-dim); color: var(--amber); }
+
+  .panel { max-width: 480px; margin: 0 auto; display: none; }
+  .panel.active { display: block; }
+  .panel-row { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+  .panel-hint { font-size: 13px; color: var(--muted); margin-top: 0; }
+
+  .btn-primary { background: var(--amber); color: #1a1200; border: none; border-radius: 8px;
+    padding: 8px 16px; font-weight: 600; font-size: 14px; cursor: pointer; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 6px 10px; cursor: pointer; font-size: 12px; }
+  .btn-danger { background: transparent; border: 1px solid var(--danger-dim); border-radius: 8px;
+    color: var(--danger); padding: 6px 10px; cursor: pointer; font-size: 12px; }
+
+  .empty-state { text-align: center; color: var(--muted); padding: 48px 16px;
+    border: 1px dashed var(--border); border-radius: 12px; }
+
+  .alarm-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px 16px; display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+  .alarm-card.disabled { opacity: .45; }
+  .alarm-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .alarm-dot.on { background: var(--mint); box-shadow: 0 0 8px var(--mint); }
+  .alarm-time { font-size: 24px; font-weight: 700; }
+  .alarm-time .period { font-size: 13px; margin-left: 6px; color: var(--muted); }
+  .alarm-meta { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alarm-main { flex: 1; min-width: 0; }
+  .alarm-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+  .toggle { width: 42px; height: 24px; border-radius: 12px; border: none; background: var(--border);
+    position: relative; cursor: pointer; flex-shrink: 0; padding: 0; }
+  .toggle.on { background: var(--mint-dim); }
+  .toggle-knob { width: 18px; height: 18px; border-radius: 50%; background: var(--muted);
+    position: absolute; top: 3px; left: 3px; transition: left .15s ease; }
+  .toggle.on .toggle-knob { background: var(--mint); left: 21px; }
+
+  .sound-row { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 14px; display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .sound-row.disabled { opacity: .5; }
+  .sound-preview { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer; flex-shrink: 0; font-size: 13px; }
+  .sound-preview.playing { border-color: var(--amber); background: var(--amber-dim); color: var(--amber); }
+  .sound-name { font-size: 14px; font-weight: 500; }
+  .sound-kind { font-size: 11px; color: var(--muted); }
+  .sound-main { flex: 1; min-width: 0; }
+
+  .upload-label { display: block; text-align: center; border: 1px dashed var(--border); border-radius: 12px;
+    padding: 16px; color: var(--muted); font-size: 13px; cursor: pointer; margin-bottom: 10px; }
+  input[type="file"] { display: none; }
+  .upload-error { font-size: 12px; color: var(--danger); margin-bottom: 10px; }
+
+  .section-label { font-size: 13px; color: var(--muted); margin: 20px 0 8px; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none;
+    align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px; width: 100%; max-width: 380px; }
+  .modal h3 { font-size: 16px; font-weight: 600; margin: 0 0 20px; }
+  .modal label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+  .modal input[type="time"], .modal input[type="text"] {
+    width: 100%; margin-bottom: 16px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); padding: 10px 12px; font-size: 14px; font-family: inherit; }
+  .modal input[type="time"] { font-size: 18px; }
+  .day-row { display: flex; gap: 6px; margin-bottom: 24px; }
+  .day-btn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+  .day-btn.active { border-color: var(--amber); background: var(--amber-dim); color: var(--amber); }
+  .modal-actions { display: flex; gap: 10px; }
+  .modal-actions button { flex: 1; padding: 10px 0; border-radius: 8px; font-size: 14px; cursor: pointer; }
+  .modal-cancel { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .modal-save { background: var(--amber); border: none; color: #1a1200; font-weight: 600; }
+
+  .firing-overlay { position: fixed; inset: 0; background: var(--bg); display: none; flex-direction: column;
+    align-items: center; justify-content: center; z-index: 100; text-align: center; padding: 16px; }
+  .firing-overlay.show { display: flex; }
+  .firing-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--amber);
+    margin-bottom: 14px; box-shadow: 0 0 12px var(--amber); animation: ringPulse 1.2s ease-in-out infinite; }
+  .firing-tag { font-size: 15px; color: var(--muted); margin-bottom: 8px; letter-spacing: 2px; }
+  .firing-time { font-size: 72px; font-weight: 700; color: var(--amber); text-shadow: 0 0 32px var(--amber-dim);
+    animation: ringPulse 1.2s ease-in-out infinite; }
+  .firing-label { font-size: 18px; color: var(--text); margin-top: 8px; }
+  .firing-sound { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .volume-bar { width: 160px; height: 4px; background: var(--surface); border-radius: 2px;
+    margin: 16px auto 0; overflow: hidden; }
+  .volume-fill { height: 100%; background: var(--amber); width: 100%; transform-origin: left; }
+  .volume-label { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .snooze-row { display: flex; gap: 6px; margin-top: 36px; justify-content: center; }
+  .snooze-pill { background: transparent; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+  .snooze-pill.active { border-color: var(--purple); background: var(--purple-dim); color: var(--purple); }
+  .firing-actions { display: flex; gap: 16px; margin-top: 16px; }
+  .firing-actions button { padding: 14px 28px; border-radius: 10px; font-size: 15px; cursor: pointer; }
+  .snooze-btn { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .dismiss-btn { background: var(--amber); border: none; color: #1a1200; font-weight: 600; }
+
+  @keyframes ringPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: .85; }
+  }
+  @keyframes ringGrow {
+    from { width: 0%; }
+  }
+</style>
+</head>
+<body>
+  <div class="clock-wrap">
+    <div class="clock-time" id="clockTime">--:--<span class="clock-period" id="clockPeriod"></span></div>
+    <div class="clock-date ui" id="clockDate"></div>
+  </div>
+
+  <div id="reliabilityBanner" class="banner ui" style="display:none;">
+    <span style="flex:1;">
+      For the most reliable wake-ups: install this to your home screen and keep it open in the background rather than fully closing it. Browsers limit background timers, so it can't guarantee firing if the app is force-closed or the phone is deep asleep.
+    </span>
+    <button id="enableNotifBtn">Enable notifications</button>
+    <button class="close" id="dismissBanner" aria-label="Dismiss">&times;</button>
+  </div>
+
+  <div class="tabs ui">
+    <button class="tab-btn active" data-tab="alarms" id="tabAlarmsBtn">Alarms</button>
+    <button class="tab-btn" data-tab="sounds" id="tabSoundsBtn">Sounds</button>
+  </div>
+
+  <div class="panel active ui" id="panelAlarms">
+    <div class="panel-row">
+      <button class="btn-primary" id="addAlarmBtn">+ Add alarm</button>
+    </div>
+    <div id="alarmsList"></div>
+  </div>
+
+  <div class="panel ui" id="panelSounds">
+    <p class="panel-hint">Every alarm pulls the next sound from your enabled pool, cycling through all of them before repeating.</p>
+    <div class="section-label">Built-in sounds</div>
+    <div id="builtinSoundsList"></div>
+    <div class="section-label">Your uploads</div>
+    <label class="upload-label" for="uploadInput">
+      <input type="file" id="uploadInput" accept="audio/*" multiple />
+      + Upload audio files (mp3, wav, etc.)
+    </label>
+    <div class="upload-error" id="uploadError" style="display:none;"></div>
+    <div id="customSoundsList"></div>
+  </div>
+
+  <!-- add/edit alarm modal -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <h3 id="modalTitle">New alarm</h3>
+      <label for="modalTime">Time</label>
+      <input type="time" id="modalTime" />
+      <label for="modalLabel">Label</label>
+      <input type="text" id="modalLabel" placeholder="e.g. Wake up" />
+      <label>Repeat</label>
+      <div class="day-row" id="modalDays"></div>
+      <div class="modal-actions">
+        <button class="modal-cancel" id="modalCancelBtn">Cancel</button>
+        <button class="modal-save" id="modalSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- firing overlay -->
+  <div class="firing-overlay" id="firingOverlay">
+    <div class="firing-dot"></div>
+    <div class="firing-tag" id="firingTag">ALARM</div>
+    <div class="firing-time" id="firingTime">--:--</div>
+    <div class="firing-label" id="firingLabel">Alarm</div>
+    <div class="firing-sound" id="firingSound">Now playing: …</div>
+    <div class="volume-bar"><div class="volume-fill" id="volumeFill"></div></div>
+    <div class="volume-label">Volume ramping up</div>
+    <div class="snooze-row" id="snoozeRow"></div>
+    <div class="firing-actions">
+      <button class="snooze-btn" id="snoozeBtn">Snooze</button>
+      <button class="dismiss-btn" id="dismissBtn">Dismiss</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
